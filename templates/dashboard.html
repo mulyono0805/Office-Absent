@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Dashboard Absensi</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    #map {
+      width: 100%;
+      height: 300px;
+      border-radius: 10px;
+    }
+    #camera {
+      width: 100%;
+      height: 240px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+    }
+    canvas {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h2>Selamat datang, {{ current_user.username }}!</h2>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div style="margin: 10px 0;">
+        {% for category, message in messages %}
+          <div style="
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 8px;
+            color: white;
+            {% if category == 'success' %}
+              background-color: #28a745;
+            {% elif category == 'warning' %}
+              background-color: #ffc107;
+              color: #333;
+            {% elif category == 'danger' %}
+              background-color: #dc3545;
+            {% else %}
+              background-color: #007bff;
+            {% endif %}
+          ">
+            {{ message }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+  <h3>Check In</h3>
+  <form id="checkin-form" method="POST" action="/checkin">
+    <input type="hidden" id="latitude" name="latitude">
+    <input type="hidden" id="longitude" name="longitude">
+    <input type="hidden" id="image" name="image">
+
+    <div id="map"></div><br>
+    <video id="camera" autoplay></video><br>
+    <button type="button" id="capture-btn">Ambil Foto</button>
+    <canvas id="canvas"></canvas><br><br>
+    <button type="submit">Check In Sekarang</button>
+  </form>
+
+  <hr>
+
+  <h3>Riwayat Absensi</h3>
+  <ul>
+  {% for a in absensi %}
+    <li style="margin-bottom:15px;">
+      {% set checkin_late = a.checkin_time.hour > 8 or (a.checkin_time.hour == 8 and a.checkin_time.minute > 0) %}
+      {% set early_checkout = a.checkout_time and (a.checkout_time.hour < 17) %}
+
+      <span style="color: {{ 'red' if checkin_late else 'black' }};">
+        Check-in: {{ a.checkin_time.strftime('%H:%M') }}
+      </span>
+
+      {% if a.checkout_time %}
+        <span style="color: {{ 'red' if early_checkout else 'black' }};">
+          - Checkout: {{ a.checkout_time.strftime('%H:%M') }}
+        </span>
+      {% else %}
+        <form method="POST" action="/checkout/{{ a.id }}" style="display:inline;">
+          <button type="submit">Checkout</button>
+        </form>
+      {% endif %}
+      <!-- Foto Check-In -->
+      {% if a.image_path %}
+        <div>
+          <strong>Foto:</strong><br>
+          <img src="{{ url_for('static', filename=a.image_path.split('static/')[1]) }}"
+               alt="Foto Check-In" style="width:150px; border-radius:5px;">
+        </div>
+      {% endif %}
+
+
+      <!-- Map mini -->
+      {% if a.latitude and a.longitude %}
+        <div id="map-{{ a.id }}" style="width:150px; height:150px; border:1px solid #ccc; margin-top:5px;"></div>
+      {% endif %}
+    </li>
+  {% endfor %}
+</ul>
+
+  <a href="{{ url_for('logout') }}">Logout</a>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    // === GPS + Leaflet Map ===
+    function initMap() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(function(position) {
+          const lat = position.coords.latitude;
+          const lon = position.coords.longitude;
+          document.getElementById('latitude').value = lat;
+          document.getElementById('longitude').value = lon;
+
+          // Buat peta Leaflet
+          const map = L.map('map').setView([lat, lon], 17);
+
+          // Tile OpenStreetMap
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
+          }).addTo(map);
+
+          // Marker lokasi user
+          L.marker([lat, lon]).addTo(map)
+            .bindPopup('Lokasi Anda')
+            .openPopup();
+        });
+      } else {
+        alert("Geolocation tidak didukung browser ini.");
+      }
+    }
+
+    // Panggil initMap saat halaman load
+    window.onload = initMap;
+
+    // === CAMERA ===
+    const video = document.getElementById('camera');
+    const canvas = document.getElementById('canvas');
+    const captureBtn = document.getElementById('capture-btn');
+    const imageInput = document.getElementById('image');
+
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => { video.srcObject = stream; })
+      .catch(err => { alert("Gagal akses kamera: " + err); });
+
+    captureBtn.addEventListener('click', function() {
+      const context = canvas.getContext('2d');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = canvas.toDataURL('image/png');
+      imageInput.value = imageData;
+      alert('Foto berhasil diambil!');
+    });
+  </script>
+  <script>
+    {% for a in absensi %}
+      {% if a.latitude and a.longitude %}
+        const map{{ a.id }} = L.map('map-{{ a.id }}').setView([{{ a.latitude }}, {{ a.longitude }}], 16);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map{{ a.id }});
+        L.marker([{{ a.latitude }}, {{ a.longitude }}]).addTo(map{{ a.id }});
+      {% endif %}
+    {% endfor %}
+  </script>
+</body>
+</html>
